@@ -1,0 +1,8 @@
+GOARCH = amd64
+GOOS = linux
+
+rule compile-go
+  command = go build -o $out $in
+  description = Compile go
+
+build out/subscribe-responder: compile-go main.go
