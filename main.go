@@ -9,6 +9,7 @@ import (
 
 	"git.sr.ht/~rockorager/go-jmap"
 	"git.sr.ht/~rockorager/go-jmap/core"
+	"git.sr.ht/~rockorager/go-jmap/core/push"
 	"git.sr.ht/~rockorager/go-jmap/mail"
 	"git.sr.ht/~rockorager/go-jmap/mail/email"
 	"git.sr.ht/~rockorager/go-jmap/mail/mailbox"
@@ -133,4 +134,17 @@ func main() {
 		// don't care about the results since we passed them to the
 		// Email/get call
 	}
+
+	var eventSource push.EventSource
+	eventSource.Client = client
+	eventSource.Handler = handler
+	eventSource.Ping = 10
+	eventSource.CloseAfterState = false
+	fmt.Println("Listening")
+	eventSource.Listen()
+	fmt.Println("Exiting")
+}
+
+func handler(change *jmap.StateChange) {
+	fmt.Println("Go state change", change)
 }
