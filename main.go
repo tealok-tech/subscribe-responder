@@ -127,7 +127,7 @@ func main() {
 			}
 		case *email.GetResponse:
 			for _, eml := range r.List {
-				fmt.Printf("Email subject: %s", eml.Subject)
+				fmt.Println("Email subject:", eml.Subject)
 			}
 		}
 		// There is a response in here to the Email/changes call, but we
