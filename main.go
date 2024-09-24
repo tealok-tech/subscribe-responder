@@ -35,6 +35,15 @@ func main() {
 	var subscriberEmail string
 	for {
 		subscriberEmail = <-toSubscribe
-		sendTransactional(listmonk, subscriberEmail)
+		subscriberId, err := getSubscriberID(listmonk, subscriberEmail)
+		// If they don't have a subscriber ID
+		if subscriberId == 0 && err == nil {
+			subscribe(listmonk, subscriberEmail)
+			continue
+		}
+		err = sendTransactional(listmonk, config.Listmonk.TransactionalTemplateID, subscriberEmail)
+		if err != nil {
+			fmt.Println("Failed to send transactional email to", subscriberEmail, err)
+		}
 	}
 }

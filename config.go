@@ -22,9 +22,10 @@ type JMAPConfig struct {
 
 // DatabaseConfig represents the database-related configurations
 type ListmonkConfig struct {
-	BaseURL  string
-	Username string
-	Password string
+	BaseURL                 string
+	Password                string
+	TransactionalTemplateID uint
+	Username                string
 }
 
 func readConfig() (*Config, error) {
