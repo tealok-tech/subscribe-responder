@@ -1,25 +1,20 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 )
 
 func main() {
-	var endpoint = ""
-	var password = ""
-	var username = ""
-
-	flag.StringVar(&endpoint, "endpoint", "https://api.fastmail.com/jmap/session", "The endpoint to use when communicating with the JMAP server")
-	flag.StringVar(&password, "password", "", "Use basic authentication, this is the password")
-	flag.StringVar(&username, "username", "", "Use basic authentication, this is the username")
-	flag.Parse()
-
-	client, err := jmapClient(password, username, endpoint)
+	config, err := readConfig()
+	if err != nil {
+		fmt.Println("Failed to read config", err)
+		os.Exit(1)
+	}
+	client, err := jmapClient(config.JMAP)
 	if err != nil {
 		fmt.Println("Failed to create JMAP client", err)
-		os.Exit(1)
+		os.Exit(2)
 	}
 
 	// Create a channel over which we'll get various emails we should respond to.
@@ -30,5 +25,12 @@ func main() {
 		fmt.Println("Failed to connect", err)
 		os.Exit(2)
 	}
-
+	// Collect up any waiting emails in our mailbox
+	go handleMessages(client, toSubscribe)
+	go subscribeToEvents(client, toSubscribe)
+	var subscriberEmail string
+	for {
+		subscriberEmail = <-toSubscribe
+		fmt.Println("Pretend response for", subscriberEmail)
+	}
 }

@@ -11,30 +11,31 @@ import (
 	"git.sr.ht/~rockorager/go-jmap/core/push"
 	"git.sr.ht/~rockorager/go-jmap/mail"
 	"git.sr.ht/~rockorager/go-jmap/mail/email"
-	"git.sr.ht/~rockorager/go-jmap/mail/mailbox"
 )
 
 type JMAPClient struct {
 	client *jmap.Client
 
-	state string
+	EmailState string
 }
 
-func jmapClient(password string, username string, endpoint string) (*JMAPClient, error) {
-	if password != "" && username == "" {
+func jmapClient(config JMAPConfig) (*JMAPClient, error) {
+	if config.Password != "" && config.Username == "" {
 		return nil, errors.New("You must specify both the username and password, not just the password")
 	}
-	if password == "" && username != "" {
+	if config.Password == "" && config.Username != "" {
 		return nil, errors.New("You must specify both the username and password, not just the username")
 	}
 
 	// If we don't have an endpoint, and the username looks like an email address, try autodetection
-	var username_parts = strings.Split(username, "@")
+	var username_parts = strings.Split(config.Username, "@")
+	var endpoint = config.Endpoint
 	if len(username_parts) > 1 {
 		domain := username_parts[1]
 		log.Print("Looking up endpoint for domain", domain)
 		var err error
 		endpoint, err = core.Discover(domain)
+		log.Println("Discovered endpoint", endpoint)
 		if err != nil {
 			return nil, fmt.Errorf("Failed to detect endpoint: %w", err)
 		}
@@ -44,18 +45,18 @@ func jmapClient(password string, username string, endpoint string) (*JMAPClient,
 	if endpoint == "" {
 		return nil, errors.New("No endpoint specified and unable to detect endpoint")
 	}
+	log.Println("Using endpoint", endpoint)
 	c := &jmap.Client{
 		SessionEndpoint: endpoint,
 	}
-	fmt.Println(c)
 	result := JMAPClient{c, ""}
 
 	// Set the authentication mechanism. This also sets the HttpClient of
 	// the jmap client
 	// client.WithAccessToken("my-access-token")
-	if password != "" && username != "" {
+	if config.Password != "" && config.Username != "" {
 		log.Print("Using basic auth")
-		c.WithBasicAuth(username, password)
+		c.WithBasicAuth(config.Username, config.Password)
 	} else {
 		return nil, errors.New("No authentication provided")
 	}
@@ -71,76 +72,100 @@ func connect(client *JMAPClient, toSubscribe chan string) error {
 	if err := client.client.Authenticate(); err != nil {
 		return fmt.Errorf("Failed to authenticate: %w", err)
 	}
+	//log.Println("Got a client. Session", client.client.Session)
+	return nil
+}
+
+func handleMessages(client *JMAPClient, toSubscribe chan<- string) error {
 	// Get the account ID of the primary mail account
 	id := client.client.Session.PrimaryAccounts[mail.URI]
 
 	// Create a new request
 	req := &jmap.Request{}
 
-	// Invoke a method. The CallID of this method will be returned to be
-	// used when chaining calls
-	req.Invoke(&mailbox.Get{
-		Account: id,
-	})
-
-	// Invoke a changes call, let's save the callID and pass it to a Get
-	// method
-	callID := req.Invoke(&email.Changes{
-		Account:    id,
-		SinceState: "some-known-state",
-	})
-
 	// Invoke a result reference call
 	req.Invoke(&email.Get{
 		Account: id,
-		ReferenceIDs: &jmap.ResultReference{
-			ResultOf: callID,          // The CallID of the referenced method
-			Name:     "Email/changes", // The name of the referenced method
-			Path:     "/created",      // JSON pointer to the location of the reference
-		},
 	})
 
 	// Make the request
 	resp, err := client.client.Do(req)
 	if err != nil {
 		// Handle the error
+		return fmt.Errorf("Failed to handle messages", err)
 	}
 
-	// Loop through the responses to invidividual invocations
+	// Enqueue a handler for any emails sitting around
 	for _, inv := range resp.Responses {
 		// Our result to individual calls is in the Args field of the
 		// invocation
 		switch r := inv.Args.(type) {
-		case *mailbox.GetResponse:
-			// A GetResponse contains a List of the objects
-			// retrieved
-			for _, mbox := range r.List {
-				fmt.Println("Mailbox name:", mbox.Name)
-				fmt.Println("Total email:", mbox.TotalEmails)
-				fmt.Println("Unread email:", mbox.UnreadEmails)
-			}
 		case *email.GetResponse:
 			for _, eml := range r.List {
-				fmt.Println("Email subject:", eml.Subject)
+				log.Println("Subject:", eml.Subject)
 				for _, f := range eml.From {
-					subscribeSender(f)
-					moveToTrash(client, eml)
+					log.Println("Email from:", f.Email)
+					toSubscribe <- f.Email
 				}
 			}
 		}
-		// There is a response in here to the Email/changes call, but we
-		// don't care about the results since we passed them to the
-		// Email/get call
 	}
+	return nil
+}
 
+func subscribeToEvents(client *JMAPClient, toSubscribe chan string) error {
+	log.Println("Start subscribeToEvents")
 	var eventSource push.EventSource
 	eventSource.Client = client.client
-	eventSource.Handler = handler
+	eventSource.Handler = func(change *jmap.StateChange) {
+		for accountId, state := range change.Changed {
+			log.Println("Account ID", accountId)
+			for key, value := range state {
+				log.Println("Resource", key, "new state", value)
+				if key == "Email" {
+					fmt.Println("Need to refresh email state to", value)
+					if value != client.EmailState {
+						GetEmailChanges(client, toSubscribe)
+					}
+				}
+			}
+		}
+	}
 	eventSource.Ping = 10
 	eventSource.CloseAfterState = false
-	fmt.Println("Listening")
+	log.Println("Listening")
 	eventSource.Listen()
-	fmt.Println("Exiting")
+	log.Println("Exiting")
+	return nil
+}
+
+// Get all of the email chainges since a particular
+func GetEmailChanges(client *JMAPClient, toSubscribe chan string) error {
+	id := client.client.Session.PrimaryAccounts[mail.URI]
+	req := &jmap.Request{}
+	log.Println("Getting email changes since", client.EmailState)
+	req.Invoke(&email.Changes{
+		Account:    id,
+		SinceState: client.EmailState,
+	})
+	resp, err := client.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("Failed to get changes", err)
+	}
+	// Enqueue a handler for any emails sitting around
+	for _, inv := range resp.Responses {
+		// Our result to individual calls is in the Args field of the
+		// invocation
+		switch r := inv.Args.(type) {
+		case *email.GetResponse:
+			for _, eml := range r.List {
+				log.Println("Email subject:", eml.Subject)
+				for _, f := range eml.From {
+					toSubscribe <- f.Email
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -150,16 +175,4 @@ func subscribeSender(sender *mail.Address) {
 
 func moveToTrash(client *JMAPClient, email *email.Email) {
 	fmt.Println("Moving", email.ID, "to trash")
-}
-func handler(change *jmap.StateChange) {
-	fmt.Println("Go state change", change)
-	for accountId, state := range change.Changed {
-		fmt.Println("Account ID", accountId)
-		for key, value := range state {
-			fmt.Println("Resource", key, "new state", value)
-			if key == "Mailbox" {
-				fmt.Println("Need to refresh mailbox state to", value)
-			}
-		}
-	}
 }
