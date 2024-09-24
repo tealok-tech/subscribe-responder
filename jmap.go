@@ -63,7 +63,7 @@ func jmapClient(config JMAPConfig) (*JMAPClient, error) {
 	return &result, nil
 }
 
-func connectJMAP(client *JMAPClient, toSubscribe chan string) error {
+func connectJMAP(client *JMAPClient) error {
 	// Authenticate the client. This gets a Session object. Session objects
 	// are cacheable, and have their own state string clients can use to
 	// decide when to refresh. The client can be initialized with a cached
