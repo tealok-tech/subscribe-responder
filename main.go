@@ -20,17 +20,21 @@ func main() {
 	// Create a channel over which we'll get various emails we should respond to.
 	var toSubscribe chan string
 	toSubscribe = make(chan string)
-	err = connect(client, toSubscribe)
+	err = connectJMAP(client, toSubscribe)
 	if err != nil {
 		fmt.Println("Failed to connect", err)
 		os.Exit(2)
 	}
-	// Collect up any waiting emails in our mailbox
+	listmonk, err := connectListmonk(config.Listmonk)
+	if err != nil {
+		fmt.Println("Failed with listmonk", err)
+		os.Exit(3)
+	}
 	go handleMessages(client, toSubscribe)
 	go subscribeToEvents(client, toSubscribe)
 	var subscriberEmail string
 	for {
 		subscriberEmail = <-toSubscribe
-		fmt.Println("Pretend response for", subscriberEmail)
+		sendTransactional(listmonk, subscriberEmail)
 	}
 }
