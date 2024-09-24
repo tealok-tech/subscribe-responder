@@ -44,18 +44,28 @@ func getSubscriberID(client *listmonk.Client, email string) (uint, error) {
 	return 0, nil
 }
 
-func subscribe(client *listmonk.Client, email string) error {
-	log.Println("Fake subscription to listmonk for", email)
-	return nil
+func subscribe(client *listmonk.Client, address string, name string) (uint, error) {
+	service := client.NewCreateSubscriberService()
+	service.Email(address)
+	service.Name(name)
+	ctx := context.Background()
+	subscriber, err := service.Do(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("Failed to subscribe", err)
+	}
+	return subscriber.Id, nil
 }
-func sendTransactional(client *listmonk.Client, templateID uint, email string) error {
+
+func sendTransactional(client *listmonk.Client, templateID uint, subscriberID uint) error {
 	service := client.NewPostTransactionalService()
-	service.SubscriberEmail(email)
+	service.SubscriberId(subscriberID)
+	service.ContentType("plain")
 	service.TemplateId(templateID)
 	ctx := context.Background()
 	err := service.Do(ctx)
 	if err != nil {
 		return fmt.Errorf("Failed to send transactional email", err)
 	}
+	log.Println("Sent welcome email to subscriber", subscriberID)
 	return nil
 }

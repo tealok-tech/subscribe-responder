@@ -76,7 +76,14 @@ func connectJMAP(client *JMAPClient) error {
 	return nil
 }
 
-func handleMessages(client *JMAPClient, toSubscribe chan<- string) error {
+func deleteMessages(client *JMAPClient, toDelete chan Request) {
+	var request Request
+	for {
+		request = <-toDelete
+		fmt.Println("Fake delete email", request.EmailID)
+	}
+}
+func handleMessages(client *JMAPClient, toSubscribe chan<- Request) error {
 	// Get the account ID of the primary mail account
 	id := client.client.Session.PrimaryAccounts[mail.URI]
 
@@ -105,7 +112,11 @@ func handleMessages(client *JMAPClient, toSubscribe chan<- string) error {
 				log.Println("Subject:", eml.Subject)
 				for _, f := range eml.From {
 					log.Println("Email from:", f.Email)
-					toSubscribe <- f.Email
+					toSubscribe <- Request{
+						f.Email,
+						string(eml.ID),
+						f.Name,
+					}
 				}
 			}
 		}
@@ -113,7 +124,7 @@ func handleMessages(client *JMAPClient, toSubscribe chan<- string) error {
 	return nil
 }
 
-func subscribeToEvents(client *JMAPClient, toSubscribe chan string) error {
+func subscribeToEvents(client *JMAPClient, toSubscribe chan Request) error {
 	log.Println("Start subscribeToEvents")
 	var eventSource push.EventSource
 	eventSource.Client = client.client
@@ -140,7 +151,7 @@ func subscribeToEvents(client *JMAPClient, toSubscribe chan string) error {
 }
 
 // Get all of the email chainges since a particular
-func GetEmailChanges(client *JMAPClient, toSubscribe chan string) error {
+func GetEmailChanges(client *JMAPClient, toSubscribe chan Request) error {
 	id := client.client.Session.PrimaryAccounts[mail.URI]
 	req := &jmap.Request{}
 	log.Println("Getting email changes since", client.EmailState)
@@ -161,7 +172,11 @@ func GetEmailChanges(client *JMAPClient, toSubscribe chan string) error {
 			for _, eml := range r.List {
 				log.Println("Email subject:", eml.Subject)
 				for _, f := range eml.From {
-					toSubscribe <- f.Email
+					toSubscribe <- Request{
+						f.Email,
+						string(eml.ID),
+						f.Name,
+					}
 				}
 			}
 		}
@@ -175,4 +190,5 @@ func subscribeSender(sender *mail.Address) {
 
 func moveToTrash(client *JMAPClient, email *email.Email) {
 	fmt.Println("Moving", email.ID, "to trash")
+
 }

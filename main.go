@@ -17,10 +17,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	// Create a channel over which we'll get various emails we should respond to.
-	var toSubscribe chan string
-	toSubscribe = make(chan string)
-	err = connectJMAP(client, toSubscribe)
+	err = connectJMAP(client)
 	if err != nil {
 		fmt.Println("Failed to connect", err)
 		os.Exit(2)
@@ -30,20 +27,29 @@ func main() {
 		fmt.Println("Failed with listmonk", err)
 		os.Exit(3)
 	}
+	// Create a channel over which we'll get various emails we should respond to.
+	toSubscribe := make(chan Request)
 	go handleMessages(client, toSubscribe)
+	// Create a channel over which we'll delete messages we've properly handled
+	toDelete := make(chan Request)
+	go deleteMessages(client, toDelete)
 	go subscribeToEvents(client, toSubscribe)
-	var subscriberEmail string
+	var request Request
 	for {
-		subscriberEmail = <-toSubscribe
-		subscriberId, err := getSubscriberID(listmonk, subscriberEmail)
+		request = <-toSubscribe
+		subscriberID, err := getSubscriberID(listmonk, request.EmailAddress)
 		// If they don't have a subscriber ID
-		if subscriberId == 0 && err == nil {
-			subscribe(listmonk, subscriberEmail)
-			continue
+		if subscriberID == 0 && err == nil {
+			subscriberID, err = subscribe(listmonk, request.EmailAddress, request.EmailName)
+			if err != nil {
+				fmt.Println("Failed to subscribe", err)
+				continue
+			}
 		}
-		err = sendTransactional(listmonk, config.Listmonk.TransactionalTemplateID, subscriberEmail)
+		err = sendTransactional(listmonk, config.Listmonk.TransactionalTemplateID, subscriberID)
 		if err != nil {
-			fmt.Println("Failed to send transactional email to", subscriberEmail, err)
+			fmt.Println("Failed to send transactional email to", subscriberID, err)
 		}
+		toDelete <- request
 	}
 }
