@@ -11,12 +11,15 @@ import (
 	"git.sr.ht/~rockorager/go-jmap/core/push"
 	"git.sr.ht/~rockorager/go-jmap/mail"
 	"git.sr.ht/~rockorager/go-jmap/mail/email"
+	"git.sr.ht/~rockorager/go-jmap/mail/mailbox"
 )
 
 type JMAPClient struct {
 	client *jmap.Client
 
-	EmailState string
+	EmailState     string
+	MailboxIDs     []jmap.ID
+	TrashMailboxID jmap.ID
 }
 
 func jmapClient(config JMAPConfig) (*JMAPClient, error) {
@@ -49,7 +52,7 @@ func jmapClient(config JMAPConfig) (*JMAPClient, error) {
 	c := &jmap.Client{
 		SessionEndpoint: endpoint,
 	}
-	result := JMAPClient{c, ""}
+	result := JMAPClient{c, "", []jmap.ID{}, ""}
 
 	// Set the authentication mechanism. This also sets the HttpClient of
 	// the jmap client
@@ -73,16 +76,71 @@ func connectJMAP(client *JMAPClient) error {
 		return fmt.Errorf("Failed to authenticate: %w", err)
 	}
 	//log.Println("Got a client. Session", client.client.Session)
+
+	// Get the various mailboxes we'll need
+	id := client.client.Session.PrimaryAccounts[mail.URI]
+	req := &jmap.Request{}
+
+	req.Invoke(&mailbox.Get{
+		Account: id,
+	})
+
+	resp, err := client.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("Failed to get mailboxes", err)
+	}
+
+	// Enqueue a handler for any emails sitting around
+	for _, inv := range resp.Responses {
+		switch r := inv.Args.(type) {
+		case *mailbox.GetResponse:
+			for _, m := range r.List {
+				client.MailboxIDs = append(client.MailboxIDs, m.ID)
+				if m.Role == mailbox.RoleTrash {
+					client.TrashMailboxID = m.ID
+				}
+			}
+		}
+	}
 	return nil
 }
 
 func deleteMessages(client *JMAPClient, toDelete chan Request) {
+	accountID := client.client.Session.PrimaryAccounts[mail.URI]
 	var request Request
 	for {
 		request = <-toDelete
-		fmt.Println("Fake delete email", request.EmailID)
+
+		req := &jmap.Request{}
+		mailboxIDs := trashMailboxIDs(client)
+		req.Invoke(&email.Set{
+			Account: accountID,
+			Update: map[jmap.ID]jmap.Patch{
+				request.EmailID: {
+					"mailboxIds": mailboxIDs,
+				},
+			},
+		})
+		resp, err := client.client.Do(req)
+		if err != nil {
+			fmt.Println("Failed to delete email", request.EmailID, resp, err)
+		} else {
+			fmt.Println("Deleted email", request.EmailID)
+		}
 	}
 }
+
+// Make a map of mailbox IDs to booleans where all mailbox IDs are mapped to 'false'
+// except the trash mailbox. This will effectively delete an email.
+func trashMailboxIDs(client *JMAPClient) map[jmap.ID]bool {
+	result := make(map[jmap.ID]bool, len(client.MailboxIDs)+1)
+	for _, m := range client.MailboxIDs {
+		result[m] = false
+	}
+	result[client.TrashMailboxID] = true
+	return result
+}
+
 func handleMessages(client *JMAPClient, toSubscribe chan<- Request) error {
 	// Get the account ID of the primary mail account
 	id := client.client.Session.PrimaryAccounts[mail.URI]
@@ -109,12 +167,15 @@ func handleMessages(client *JMAPClient, toSubscribe chan<- Request) error {
 		switch r := inv.Args.(type) {
 		case *email.GetResponse:
 			for _, eml := range r.List {
+				if eml.MailboxIDs[client.TrashMailboxID] {
+					continue
+				}
 				log.Println("Subject:", eml.Subject)
 				for _, f := range eml.From {
 					log.Println("Email from:", f.Email)
 					toSubscribe <- Request{
 						f.Email,
-						string(eml.ID),
+						eml.ID,
 						f.Name,
 					}
 				}
@@ -174,7 +235,7 @@ func GetEmailChanges(client *JMAPClient, toSubscribe chan Request) error {
 				for _, f := range eml.From {
 					toSubscribe <- Request{
 						f.Email,
-						string(eml.ID),
+						eml.ID,
 						f.Name,
 					}
 				}
