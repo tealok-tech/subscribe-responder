@@ -166,6 +166,7 @@ func handleMessages(client *JMAPClient, toSubscribe chan<- Request) error {
 		// invocation
 		switch r := inv.Args.(type) {
 		case *email.GetResponse:
+			client.EmailState = r.State
 			for _, eml := range r.List {
 				if eml.MailboxIDs[client.TrashMailboxID] {
 					continue
@@ -195,7 +196,6 @@ func subscribeToEvents(client *JMAPClient, toSubscribe chan Request) error {
 			for key, value := range state {
 				log.Println("Resource", key, "new state", value)
 				if key == "Email" {
-					fmt.Println("Need to refresh email state to", value)
 					if value != client.EmailState {
 						GetEmailChanges(client, toSubscribe)
 					}
@@ -216,10 +216,19 @@ func GetEmailChanges(client *JMAPClient, toSubscribe chan Request) error {
 	id := client.client.Session.PrimaryAccounts[mail.URI]
 	req := &jmap.Request{}
 	log.Println("Getting email changes since", client.EmailState)
-	req.Invoke(&email.Changes{
+	callID := req.Invoke(&email.Changes{
 		Account:    id,
 		SinceState: client.EmailState,
 	})
+	req.Invoke(&email.Get{
+		Account: id,
+		ReferenceIDs: &jmap.ResultReference{
+			ResultOf: callID,
+			Name:     "Email/changes",
+			Path:     "/created",
+		},
+	})
+
 	resp, err := client.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("Failed to get changes", err)
@@ -229,6 +238,8 @@ func GetEmailChanges(client *JMAPClient, toSubscribe chan Request) error {
 		// Our result to individual calls is in the Args field of the
 		// invocation
 		switch r := inv.Args.(type) {
+		// We don't care about the changes response
+		//case *email.ChangesResponse:
 		case *email.GetResponse:
 			for _, eml := range r.List {
 				log.Println("Email subject:", eml.Subject)
@@ -241,6 +252,7 @@ func GetEmailChanges(client *JMAPClient, toSubscribe chan Request) error {
 				}
 			}
 		}
+
 	}
 	return nil
 }
