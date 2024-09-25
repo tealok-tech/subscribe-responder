@@ -59,7 +59,7 @@ func subscribe(client *listmonk.Client, address string, name string) (uint, erro
 func sendTransactional(client *listmonk.Client, templateID uint, subscriberID uint) error {
 	service := client.NewPostTransactionalService()
 	service.SubscriberId(subscriberID)
-	service.ContentType("plain")
+	service.ContentType("html")
 	service.TemplateId(templateID)
 	ctx := context.Background()
 	err := service.Do(ctx)
