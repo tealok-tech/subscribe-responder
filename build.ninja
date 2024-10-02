@@ -1,8 +1,9 @@
+CGO_ENABLED=0
 GOARCH = amd64
 GOOS = linux
-
+ldflags = "-s -w"
 rule compile-go
-  command = go build -o $out $in
+  command = CGO_ENABLED=$CGO_ENABLED GOARCH=$GOARCH GOOS=$GOOS go build -ldflags=$ldflags -o $out $in
   description = Compile go
 
 build out/subscribe-responder: compile-go config.go jmap.go listmonk.go main.go types.go | go.mod
