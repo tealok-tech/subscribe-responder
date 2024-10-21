@@ -9,8 +9,9 @@ import (
 
 // Config struct represents the structure of your configuration file
 type Config struct {
-	JMAP     JMAPConfig
-	Listmonk ListmonkConfig
+	JMAP                  JMAPConfig
+	Listmonk              ListmonkConfig
+	SubscriptionResponder SubscriptionResponderConfig
 }
 
 // ServerConfig represents the server-related configurations
@@ -22,10 +23,20 @@ type JMAPConfig struct {
 
 // DatabaseConfig represents the database-related configurations
 type ListmonkConfig struct {
-	BaseURL                 string
-	Password                string
+	// The base URL for listmonk, like https://mailing-list.domain.org
+	BaseURL string
+	// The list that new subscribers are added to. We poll for subscribers on this
+	// list, send them the transactional email, then move their subscription to the TargetList.
+	NewSubscriberList uint
+	// The password to authenticate to listmonk
+	Password string
+	// The list that contains our actual content. Subscriptions get moved here after our welcome email
+	// and stay here over the long haul.
+	TargetList uint
+	// The template ID for the transactional email to send to new subscribers
 	TransactionalTemplateID uint
-	Username                string
+	// The username to authenticate to listmonk
+	Username string
 }
 
 func readConfig() (*Config, error) {
@@ -43,4 +54,9 @@ func readConfig() (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+type SubscriptionResponderConfig struct {
+	// When present, only respond to requests from emails that match the provided regular expression.
+	EmailFilterRegex string
 }

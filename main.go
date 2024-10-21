@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"regexp"
 )
 
 func main() {
@@ -29,26 +30,34 @@ func main() {
 	}
 	// Create a channel over which we'll get various emails we should respond to.
 	toSubscribe := make(chan Request)
-	go handleMessages(client, toSubscribe)
+
+	emailRegex, err := regexp.Compile(config.SubscriptionResponder.EmailFilterRegex)
+	if err != nil {
+		fmt.Println("Failed to parse email filter", config.SubscriptionResponder.EmailFilterRegex)
+		os.Exit(4)
+	}
+
+	// handle messages that are already on the server
+	go handleMessages(jmap, toSubscribe, emailRegex)
 	// Create a channel over which we'll delete messages we've properly handled
 	toDelete := make(chan Request)
-	go deleteMessages(client, toDelete)
-	go subscribeToEvents(client, toSubscribe)
+	// Start a goroutine for deleting messages after they are handled
+	go deleteMessages(jmap, toDelete)
+	// Subscribe to incoming messages
+	go subscribeToEvents(jmap, toSubscribe)
+	// Poll regularly for anyone that has added themselves to the temporary mailing list
+	go pollForSubscribers(listmonk, config.Listmonk.NewSubscriberList, config.Listmonk.TransactionalTemplateID, config.Listmonk.TargetList, emailRegex)
 	var request Request
 	for {
 		request = <-toSubscribe
 		subscriberID, err := getSubscriberID(listmonk, request.EmailAddress)
 		// If they don't have a subscriber ID
 		if subscriberID == 0 && err == nil {
-			subscriberID, err = subscribe(listmonk, request.EmailAddress, request.EmailName)
+			subscriberID, err = createSubscriber(listmonk, request.EmailAddress, request.EmailName, config.Listmonk.NewSubscriberList)
 			if err != nil {
-				fmt.Println("Failed to subscribe", err)
+				fmt.Println("Failed to create subscriber", err)
 				continue
 			}
-		}
-		err = sendTransactional(listmonk, config.Listmonk.TransactionalTemplateID, subscriberID)
-		if err != nil {
-			fmt.Println("Failed to send transactional email to", subscriberID, err)
 		}
 		toDelete <- request
 	}

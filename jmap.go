@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
 	"git.sr.ht/~rockorager/go-jmap"
@@ -141,7 +142,9 @@ func trashMailboxIDs(client *JMAPClient) map[jmap.ID]bool {
 	return result
 }
 
-func handleMessages(client *JMAPClient, toSubscribe chan<- Request) error {
+// Search for existing email messages to our subscribe mailbox.
+// For any messages we find we'll put a subscription request into the toSubscribe channel.
+func handleMessages(client *JMAPClient, toSubscribe chan<- Request, emailFilterRegex *regexp.Regexp) error {
 	// Get the account ID of the primary mail account
 	id := client.client.Session.PrimaryAccounts[mail.URI]
 
@@ -174,6 +177,12 @@ func handleMessages(client *JMAPClient, toSubscribe chan<- Request) error {
 				log.Println("Subject:", eml.Subject)
 				for _, f := range eml.From {
 					log.Println("Email from:", f.Email)
+					if emailFilterRegex != nil {
+						if !emailFilterRegex.MatchString(f.Email) {
+							log.Println("Email does not match filter, ignoring.")
+							continue
+						}
+					}
 					toSubscribe <- Request{
 						f.Email,
 						eml.ID,
