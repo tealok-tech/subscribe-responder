@@ -13,13 +13,14 @@ func main() {
 		fmt.Println("Failed to read config", err)
 		os.Exit(1)
 	}
-	client, err := jmapClient(config.JMAP)
+	// Set up the connection to the JMAP server
+	jmap, err := jmapClient(config.JMAP)
 	if err != nil {
 		fmt.Println("Failed to create JMAP client", err)
 		os.Exit(2)
 	}
 
-	err = connectJMAP(client)
+	err = connectJMAP(jmap)
 	if err != nil {
 		fmt.Println("Failed to connect", err)
 		os.Exit(2)
