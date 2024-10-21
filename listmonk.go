@@ -127,6 +127,6 @@ func sendTransactional(client *listmonk.Client, templateID uint, subscriberID ui
 	if err != nil {
 		return fmt.Errorf("Failed to send transactional email", err)
 	}
-	log.Println("Sent welcome email to subscriber", subscriberID)
+	log.Println("Sent transactional email", templateID, "to subscriber", subscriberID)
 	return nil
 }

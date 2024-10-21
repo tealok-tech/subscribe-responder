@@ -7,6 +7,7 @@ import (
 )
 
 func main() {
+	// Read in the program configuration
 	config, err := readConfig()
 	if err != nil {
 		fmt.Println("Failed to read config", err)
@@ -23,6 +24,7 @@ func main() {
 		fmt.Println("Failed to connect", err)
 		os.Exit(2)
 	}
+	// Set up a connection to the mailing list server
 	listmonk, err := connectListmonk(config.Listmonk)
 	if err != nil {
 		fmt.Println("Failed with listmonk", err)
@@ -51,7 +53,7 @@ func main() {
 	for {
 		request = <-toSubscribe
 		subscriberID, err := getSubscriberID(listmonk, request.EmailAddress)
-		// If they don't have a subscriber ID
+		// If they don't have a subscriber ID, create one
 		if subscriberID == 0 && err == nil {
 			subscriberID, err = createSubscriber(listmonk, request.EmailAddress, request.EmailName, config.Listmonk.NewSubscriberList)
 			if err != nil {

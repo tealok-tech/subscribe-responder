@@ -106,6 +106,7 @@ func connectJMAP(client *JMAPClient) error {
 	return nil
 }
 
+// Goroutine for deleting messages
 func deleteMessages(client *JMAPClient, toDelete chan Request) {
 	accountID := client.client.Session.PrimaryAccounts[mail.URI]
 	var request Request
@@ -124,9 +125,9 @@ func deleteMessages(client *JMAPClient, toDelete chan Request) {
 		})
 		resp, err := client.client.Do(req)
 		if err != nil {
-			fmt.Println("Failed to delete email", request.EmailID, resp, err)
+			log.Println("Failed to delete email", request.EmailID, resp, err)
 		} else {
-			fmt.Println("Deleted email", request.EmailID)
+			log.Println("Deleted email", request.EmailID)
 		}
 	}
 }
@@ -196,14 +197,12 @@ func handleMessages(client *JMAPClient, toSubscribe chan<- Request, emailFilterR
 }
 
 func subscribeToEvents(client *JMAPClient, toSubscribe chan Request) error {
-	log.Println("Start subscribeToEvents")
 	var eventSource push.EventSource
 	eventSource.Client = client.client
 	eventSource.Handler = func(change *jmap.StateChange) {
 		for accountId, state := range change.Changed {
-			log.Println("Account ID", accountId)
 			for key, value := range state {
-				log.Println("Resource", key, "new state", value)
+				log.Println("Account", accountId, key, "has new state", value)
 				if key == "Email" {
 					if value != client.EmailState {
 						GetEmailChanges(client, toSubscribe)
@@ -214,9 +213,9 @@ func subscribeToEvents(client *JMAPClient, toSubscribe chan Request) error {
 	}
 	eventSource.Ping = 10
 	eventSource.CloseAfterState = false
-	log.Println("Listening")
+	log.Println("Listening for events from JMAP server")
 	eventSource.Listen()
-	log.Println("Exiting")
+	log.Println("Exiting JMAP listen event loop")
 	return nil
 }
 
